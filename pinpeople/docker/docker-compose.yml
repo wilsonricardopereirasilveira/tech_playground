@@ -1,0 +1,68 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DB_HOST=db
+      - DB_USER=pinpeople_user
+      - DB_PASSWORD=PinP_s3cur3_p@ssw0rd
+      - DB_NAME=pinpeople_db
+      - REDIS_HOST=redis
+    volumes:
+      - ..:/app
+    networks:
+      - pinpeople-network
+
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: pinpeople_db
+      POSTGRES_USER: pinpeople_user
+      POSTGRES_PASSWORD: PinP_s3cur3_p@ssw0rd
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - pinpeople-network
+
+  redis:
+    image: redis:alpine
+    networks:
+      - pinpeople-network
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    networks:
+      - pinpeople-network
+
+  prometheus:
+    image: prom/prometheus:v2.30.3
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - pinpeople-network
+
+networks:
+  pinpeople-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  prometheus_data:
