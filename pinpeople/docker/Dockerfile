@@ -1,32 +1,37 @@
-# Estágio de compilação
-FROM golang:1.18-alpine AS builder
+# Build stage
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
-# Copia todo o conteúdo do projeto
+# Copiar go.mod e go.sum (se existir)
+COPY go.mod ./
+COPY go.sum* ./
+
+# Baixar dependências
+RUN go mod download
+
+# Copiar o restante do código fonte
 COPY . .
 
-# Verifica se go.mod existe, se não, inicializa um novo módulo
-RUN if [ ! -f go.mod ]; then go mod init pinpeople; fi
+# Compilar a aplicação principal
+RUN go build -o main ./cmd/api
 
-# Baixa as dependências
-RUN go mod tidy
+# Compilar o importador
+RUN go build -o import ./cmd/import
 
-# Compila a aplicação
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/api
-
-# Estágio final
-FROM alpine:latest  
-
-RUN apk --no-cache add ca-certificates
+# Final stage
+FROM alpine:latest
 
 WORKDIR /root/
 
-# Copia o binário compilado do estágio de compilação
+# Copiar os executáveis compilados
 COPY --from=builder /app/main .
+COPY --from=builder /app/import .
 
-# Expõe a porta que a aplicação usa
+# Copiar o arquivo CSV
+COPY data/employees.csv ./data/
+
 EXPOSE 8080
 
-# Comando para executar a aplicação
+# Comando padrão para executar a aplicação principal
 CMD ["./main"]

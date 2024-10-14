@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   app:
     build:
@@ -9,13 +11,27 @@ services:
       - db
       - redis
     environment:
+      - DATABASE_URL=postgres://pinpeople_user:PinP_s3cur3_p@ssw0rd@db/pinpeople_db?sslmode=disable
+      - REDIS_HOST=redis
+    volumes:
+      - ../:/app
+    networks:
+      - pinpeople-network
+
+  import:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: [ "./import" ]
+    depends_on:
+      - db
+    environment:
       - DB_HOST=db
       - DB_USER=pinpeople_user
       - DB_PASSWORD=PinP_s3cur3_p@ssw0rd
       - DB_NAME=pinpeople_db
-      - REDIS_HOST=redis
     volumes:
-      - ..:/app
+      - ../data:/app/data
     networks:
       - pinpeople-network
 
