@@ -141,6 +141,58 @@ func (r *postgresEmployeeRepository) FindByID(id int) (*domain.Employee, error) 
 	return &employee, nil
 }
 
+func (r *postgresEmployeeRepository) FindAllPaginated(page, pageSize int) ([]*domain.Employee, int, error) {
+	offset := (page - 1) * pageSize
+
+	// Get total count
+	var totalCount int
+	err := r.db.QueryRow("SELECT COUNT(*) FROM employees").Scan(&totalCount)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error getting total count: %w", err)
+	}
+
+	// Get paginated results
+	rows, err := r.db.Query(`
+		SELECT id, name, email, corporate_email, department_id, position, role, 
+		location_id, time_at_company, gender, generation, response_date, 
+		position_interest, position_interest_comments, contribution, contribution_comments,
+		learning_development, learning_development_comments, feedback, feedback_comments,
+		manager_interaction, manager_interaction_comments, career_clarity, 
+		career_clarity_comments, retention_expectation, retention_expectation_comments,
+		enps, enps_comments, open_enps
+		FROM employees 
+		ORDER BY id 
+		LIMIT $1 OFFSET $2`, pageSize, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error querying employees: %w", err)
+	}
+	defer rows.Close()
+
+	var employees []*domain.Employee
+	for rows.Next() {
+		var e domain.Employee
+		err := rows.Scan(
+			&e.ID, &e.Name, &e.Email, &e.CorporateEmail, &e.DepartmentID, &e.Position, &e.Role,
+			&e.LocationID, &e.TimeAtCompany, &e.Gender, &e.Generation, &e.ResponseDate,
+			&e.PositionInterest, &e.PositionInterestComments, &e.Contribution, &e.ContributionComments,
+			&e.LearningDevelopment, &e.LearningDevelopmentComments, &e.Feedback, &e.FeedbackComments,
+			&e.ManagerInteraction, &e.ManagerInteractionComments, &e.CareerClarity,
+			&e.CareerClarityComments, &e.RetentionExpectation, &e.RetentionExpectationComments,
+			&e.ENPS, &e.ENPSComments, &e.OpenENPS,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("error scanning employee: %w", err)
+		}
+		employees = append(employees, &e)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating over rows: %w", err)
+	}
+
+	return employees, totalCount, nil
+}
+
 func (r *postgresEmployeeRepository) Update(employee *domain.Employee) error {
 	query := `
         UPDATE employees SET

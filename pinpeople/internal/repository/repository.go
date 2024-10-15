@@ -1,9 +1,12 @@
 package repository
 
-import "pinpeople/internal/domain"
+import (
+	"pinpeople/internal/domain"
+)
 
 type EmployeeRepository interface {
 	Create(employee *domain.Employee) (*domain.Employee, error)
+	FindAllPaginated(page, pageSize int) ([]*domain.Employee, int, error)
 	FindAll() ([]*domain.Employee, error)
 	FindByID(id int) (*domain.Employee, error)
 	Update(employee *domain.Employee) error

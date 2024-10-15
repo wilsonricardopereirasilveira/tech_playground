@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"pinpeople/internal/domain"
@@ -13,12 +15,33 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func GetEmployeesHandler(employeeRepo repository.EmployeeRepository, rdb *redis.Client) http.HandlerFunc {
+// RedisClient interface
+type RedisClient interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+}
+
+const employeesCacheKey = "employees"
+
+func GetEmployeesHandler(employeeRepo repository.EmployeeRepository, rdb RedisClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		cacheKey := "employees"
 
-		// Tenta obter do cache
+		// Parse pagination parameters
+		page, err := strconv.Atoi(r.URL.Query().Get("page"))
+		if err != nil || page < 1 {
+			page = 1
+		}
+		pageSize, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
+		if err != nil || pageSize < 1 || pageSize > 100 {
+			pageSize = 10 // Default page size
+		}
+
+		// Create a cache key that includes pagination parameters
+		cacheKey := fmt.Sprintf("%s:page:%d:size:%d", employeesCacheKey, page, pageSize)
+
+		// Try to get from cache
 		cachedData, err := rdb.Get(ctx, cacheKey).Bytes()
 		if err == nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -26,34 +49,48 @@ func GetEmployeesHandler(employeeRepo repository.EmployeeRepository, rdb *redis.
 			return
 		}
 
-		// Se não estiver no cache, busca do banco de dados
-		employees, err := employeeRepo.FindAll()
+		// If not in cache, fetch from database
+		employees, totalCount, err := employeeRepo.FindAllPaginated(page, pageSize)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// Serializa os dados
-		jsonData, err := json.Marshal(employees)
+		// Create a response structure that includes pagination info
+		response := struct {
+			Employees  []*domain.Employee `json:"employees"`
+			TotalCount int                `json:"totalCount"`
+			Page       int                `json:"page"`
+			PageSize   int                `json:"pageSize"`
+			TotalPages int                `json:"totalPages"`
+		}{
+			Employees:  employees,
+			TotalCount: totalCount,
+			Page:       page,
+			PageSize:   pageSize,
+			TotalPages: (totalCount + pageSize - 1) / pageSize,
+		}
+
+		// Serialize the data
+		jsonData, err := json.Marshal(response)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// Armazena no cache por 5 minutos
+		// Store in cache for 5 minutes
 		err = rdb.Set(ctx, cacheKey, jsonData, 5*time.Minute).Err()
 		if err != nil {
-			// Log do erro, mas continua a execução
-			log.Printf("Erro ao armazenar no cache: %v", err)
+			log.Printf("Error storing in cache: %v", err)
 		}
 
-		// Envia a resposta
+		// Send the response
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(jsonData)
 	}
 }
 
-func CreateEmployeeHandler(employeeRepo repository.EmployeeRepository) http.HandlerFunc {
+func CreateEmployeeHandler(employeeRepo repository.EmployeeRepository, rdb RedisClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var employee domain.Employee
 		if err := json.NewDecoder(r.Body).Decode(&employee); err != nil {
@@ -108,25 +145,19 @@ func CreateEmployeeHandler(employeeRepo repository.EmployeeRepository) http.Hand
 			return
 		}
 
+		// Invalidate the cache
+		ctx := r.Context()
+		if err := rdb.Del(ctx, employeesCacheKey).Err(); err != nil {
+			log.Printf("Erro ao invalidar o cache: %v", err)
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(createdEmployee)
 	}
 }
 
-// Helper functions to convert values to pointers
-func intPtr(i int) *int {
-	return &i
-}
-
-func strPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-func DeleteEmployeeHandler(employeeRepo repository.EmployeeRepository) http.HandlerFunc {
+func DeleteEmployeeHandler(employeeRepo repository.EmployeeRepository, rdb RedisClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		id, err := strconv.Atoi(vars["id"])
@@ -140,11 +171,17 @@ func DeleteEmployeeHandler(employeeRepo repository.EmployeeRepository) http.Hand
 			return
 		}
 
+		// Invalidate the cache
+		ctx := r.Context()
+		if err := rdb.Del(ctx, employeesCacheKey).Err(); err != nil {
+			log.Printf("Erro ao invalidar o cache: %v", err)
+		}
+
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-func UpdateEmployeeHandler(employeeRepo repository.EmployeeRepository) http.HandlerFunc {
+func UpdateEmployeeHandler(employeeRepo repository.EmployeeRepository, rdb RedisClient) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		id, err := strconv.Atoi(vars["id"])
@@ -164,6 +201,12 @@ func UpdateEmployeeHandler(employeeRepo repository.EmployeeRepository) http.Hand
 		if err := employeeRepo.Update(&employee); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+
+		// Invalidate the cache
+		ctx := r.Context()
+		if err := rdb.Del(ctx, employeesCacheKey).Err(); err != nil {
+			log.Printf("Erro ao invalidar o cache: %v", err)
 		}
 
 		w.Header().Set("Content-Type", "application/json")

@@ -59,9 +59,9 @@ func setupRouter(db *sql.DB, rdb *redis.Client) *mux.Router {
 	api := router.PathPrefix("/api").Subrouter()
 	api.Use(middleware.JWTMiddleware)
 	api.HandleFunc("/employees", handlers.GetEmployeesHandler(employeeRepo, rdb)).Methods("GET")
-	api.HandleFunc("/employees", handlers.CreateEmployeeHandler(employeeRepo)).Methods("POST")
-	api.HandleFunc("/employees/{id:[0-9]+}", handlers.UpdateEmployeeHandler(employeeRepo)).Methods("PUT")
-	api.HandleFunc("/employees/{id:[0-9]+}", handlers.DeleteEmployeeHandler(employeeRepo)).Methods("DELETE")
+	api.HandleFunc("/employees", handlers.CreateEmployeeHandler(employeeRepo, rdb)).Methods("POST")
+	api.HandleFunc("/employees/{id:[0-9]+}", handlers.UpdateEmployeeHandler(employeeRepo, rdb)).Methods("PUT")
+	api.HandleFunc("/employees/{id:[0-9]+}", handlers.DeleteEmployeeHandler(employeeRepo, rdb)).Methods("DELETE")
 	api.HandleFunc("/employees/{id:[0-9]+}", handlers.GetEmployeeByIDHandler(employeeRepo)).Methods("GET")
 
 	api.HandleFunc("/departments", handlers.GetDepartmentsHandler(departmentRepo)).Methods("GET")
