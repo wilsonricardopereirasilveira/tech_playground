@@ -1,10 +1,9 @@
-version: '3.8'
-
 services:
   app:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    command: [ "./wait-for-db.sh", "./main" ]
     ports:
       - "8080:8080"
     depends_on:
@@ -15,6 +14,7 @@ services:
       - REDIS_HOST=redis
     volumes:
       - ../:/app
+      - ../wait-for-db.sh:/root/wait-for-db.sh
     networks:
       - pinpeople-network
 
@@ -22,7 +22,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    command: [ "./import" ]
+    command: [ "./wait-for-db.sh", "./import" ]
     depends_on:
       - db
     environment:
@@ -32,6 +32,7 @@ services:
       - DB_NAME=pinpeople_db
     volumes:
       - ../data:/app/data
+      - ../wait-for-db.sh:/root/wait-for-db.sh
     networks:
       - pinpeople-network
 
@@ -75,6 +76,17 @@ services:
     networks:
       - pinpeople-network
 
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000" # Default Grafana port
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Set admin password
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - pinpeople-network
+
 networks:
   pinpeople-network:
     driver: bridge
@@ -82,3 +94,4 @@ networks:
 volumes:
   postgres_data:
   prometheus_data:
+  grafana_data:
